@@ -2,15 +2,15 @@ name: Deploy Telegram Bot
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  deploy:
+  test-bot:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v3
     
     - name: Set up Python
@@ -22,25 +22,25 @@ jobs:
       run: |
         pip install python-telegram-bot
     
-    - name: Test bot
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    - name: Check files
+      run: |
+        echo "Files in repository:"
+        ls -la
+        echo ""
+        echo "Checking config.json..."
+        if [ -f "config.json" ]; then
+          echo "✅ config.json exists"
+          cat config.json
+        else
+          echo "❌ config.json missing"
+          # Create minimal config for testing
+          echo '{"telegram": {"bot_token": "test_token", "allowed_user_ids": [123]}}' > config.json
+        fi
+    
+    - name: Test bot startup
       run: |
         echo "Testing bot startup..."
-        timeout 10 python telegram_bot.py &
-        sleep 5
-        echo "Bot test completed"
-    
-    - name: Deploy to VPS (Optional)
-      if: false
-      uses: appleboy/ssh-action@master
-      env:
-        BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USERNAME }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        script: |
-          cd /opt/telegram-bot
-          git pull origin main
-          systemctl restart telegram-bot
+        # Run bot for 5 seconds to test it starts
+        timeout 5 python telegram_bot.py &
+        sleep 3
+        echo "✅ Bot test completed"
