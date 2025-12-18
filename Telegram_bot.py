@@ -29,7 +29,7 @@ from telegram.ext import (
 
 # ============ CONFIGURATION ============
 # Load from environment or config file
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+BOT_TOKEN = os.environ.get("8282816024:AAEYObful5NrKyd9uxKHn60XS2uwZJ6SZIE", "8556162074:AAFzo3Cs_P1ZMAzN_OhY1Kk8MWaj10V0N_w)
 ALLOWED_USER_IDS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "5682792112,6064653643").split(",")]
 
 # File upload limits (in bytes)
@@ -975,7 +975,7 @@ async def cleanup_old_sessions():
 def main() -> None:
     """Start the bot"""
     # Check token
-    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+    if BOT_TOKEN == "8556162074:AAFzo3Cs_P1ZMAzN_OhY1Kk8MWaj10V0N_w":
         print("❌ ERROR: Please set your Telegram Bot Token!")
         print("1. Create bot with @BotFather")
         print("2. Get token")
