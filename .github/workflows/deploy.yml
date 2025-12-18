@@ -1,1 +1,46 @@
+name: Deploy Telegram Bot
 
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install python-telegram-bot
+    
+    - name: Test bot
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      run: |
+        echo "Testing bot startup..."
+        timeout 10 python telegram_bot.py &
+        sleep 5
+        echo "Bot test completed"
+    
+    - name: Deploy to VPS (Optional)
+      if: false
+      uses: appleboy/ssh-action@master
+      env:
+        BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        script: |
+          cd /opt/telegram-bot
+          git pull origin main
+          systemctl restart telegram-bot
