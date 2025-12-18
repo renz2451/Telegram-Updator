@@ -1,10 +1,5 @@
-#!/usr/bin/env python3
-"""
-TELEGRAM OFFSET UPDATER BOT FOR .CS DUMP FILES
-Complete version with automatic file reading and processing
-"""
-
 import os
+import sys
 import re
 import json
 import shutil
@@ -28,12 +23,33 @@ from telegram.ext import (
 )
 
 # ============ CONFIGURATION ============
-# Load from environment or config file
-BOT_TOKEN = os.environ.get("8282816024:AAEYObful5NrKyd9uxKHn60XS2uwZJ6SZIE", "8556162074:AAFzo3Cs_P1ZMAzN_OhY1Kk8MWaj10V0N_w)
-ALLOWED_USER_IDS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "5682792112,6064653643").split(",")]
+# Load configuration from config.json
+CONFIG_FILE = "config.json"
+
+def load_config():
+    """Load configuration from JSON file"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+            
+            # Extract values
+            bot_token = config.get("telegram", {}).get("bot_token", "")
+            allowed_users = config.get("telegram", {}).get("allowed_user_ids", [5682792112, 6064653643])
+            max_file_size = config.get("files", {}).get("max_file_size_mb", 50) * 1024 * 1024
+            
+            return bot_token, allowed_users, max_file_size
+            
+        except Exception as e:
+            print(f"Error loading config: {e}")
+    
+    # Default values if config not found
+    return "", [5682792112, 6064653643], 50 * 1024 * 1024
+
+# Load configuration
+BOT_TOKEN, ALLOWED_USER_IDS, MAX_FILE_SIZE = load_config()
 
 # File upload limits (in bytes)
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_SOURCE_EXTENSIONS = ['.cpp', '.c', '.h', '.hpp', '.cc', '.cxx', '.txt']
 ALLOWED_DUMP_EXTENSIONS = ['.cs', '.txt', '.log', '.dump']
 
@@ -75,11 +91,22 @@ class UserSession:
     
     def get_status_text(self) -> str:
         """Get formatted status text"""
-        files = [
-            f"{'✅' if self.source_file else '❌'} Source: {self.source_file.name if self.source_file else 'Not uploaded'}",
-            f"{'✅' if self.old_dump else '❌'} Old Dump: {self.old_dump.name if self.old_dump else 'Not uploaded'}",
-            f"{'✅' if self.new_dump else '❌'} New Dump: {self.new_dump.name if self.new_dump else 'Not uploaded'}"
-        ]
+        files = []
+        if self.source_file:
+            files.append(f"✅ Source: {self.source_file.name}")
+        else:
+            files.append("❌ Source: Not uploaded")
+            
+        if self.old_dump:
+            files.append(f"✅ Old Dump: {self.old_dump.name}")
+        else:
+            files.append("❌ Old Dump: Not uploaded")
+            
+        if self.new_dump:
+            files.append(f"✅ New Dump: {self.new_dump.name}")
+        else:
+            files.append("❌ New Dump: Not uploaded")
+            
         return "\n".join(files)
 
 # Global session storage
@@ -91,7 +118,6 @@ def get_main_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton("📤 Upload Files", callback_data="upload")],
         [InlineKeyboardButton("🔄 Check Status", callback_data="status")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
         [
             InlineKeyboardButton("❓ Help", callback_data="help"),
             InlineKeyboardButton("🗑️ Clear All", callback_data="clear")
@@ -106,14 +132,6 @@ def get_file_type_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📁 OLD .cs Dump", callback_data="type_old")],
         [InlineKeyboardButton("📁 NEW .cs Dump", callback_data="type_new")],
         [InlineKeyboardButton("🔙 Back", callback_data="back")]
-    ]
-    return InlineKeyboardMarkup(buttons)
-
-def get_processing_keyboard() -> InlineKeyboardMarkup:
-    """Keyboard during processing"""
-    buttons = [
-        [InlineKeyboardButton("⏸️ Pause", callback_data="pause")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -171,6 +189,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 *Required .cs Dump Format:*
 Your .cs files should contain function addresses like:
+
+// FunctionName
+//RVA: 0x123456
 
 
 *Limits:*
@@ -265,8 +286,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await file.download_to_drive(file_path)
         logger.info(f"File saved: {file_path}")
         
-        # Determine file type based on extension and content
-        file_type = await determine_file_type(file_path, file_name)
+        # Determine file type
+        file_type = determine_file_type(file_path, file_name)
         
         # Store based on type
         if file_type == "source":
@@ -320,10 +341,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"❌ Error uploading file: {str(e)[:100]}"
         )
 
-async def determine_file_type(file_path: Path, file_name: str) -> str:
+def determine_file_type(file_path: Path, file_name: str) -> str:
     """
     Determine if file is source, old dump, or new dump
-    YES - THIS READS YOUR FILE CONTENT TO DETERMINE TYPE!
     """
     file_extension = Path(file_name).suffix.lower()
     
@@ -332,37 +352,16 @@ async def determine_file_type(file_path: Path, file_name: str) -> str:
         return "source"
     
     elif file_extension in ALLOWED_DUMP_EXTENSIONS:
-        # Read file content to determine old/new
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read(5000)  # Read first 5KB
-            
-            # Check for indicators in filename
-            file_lower = file_name.lower()
-            if 'old' in file_lower or 'previous' in file_lower or 'v1' in file_lower:
-                return "old_dump"
-            elif 'new' in file_lower or 'updated' in file_lower or 'v2' in file_lower:
-                return "new_dump"
-            
-            # Check content for dump patterns
-            dump_patterns = [
-                r'RVA:\s*0x[0-9A-Fa-f]+',
-                r'Offset:\s*0x[0-9A-Fa-f]+',
-                r'//.*Function',
-                r'public.*0x[0-9A-Fa-f]+'
-            ]
-            
-            for pattern in dump_patterns:
-                if re.search(pattern, content, re.IGNORECASE):
-                    # Default to old dump if ambiguous
-                    return "old_dump"
-            
-        except Exception as e:
-            logger.warning(f"Error reading file for type detection: {e}")
-    
-    # Default based on extension
-    if file_extension == '.cs':
-        return "old_dump"
+        # Check for indicators in filename
+        file_lower = file_name.lower()
+        if 'old' in file_lower or 'previous' in file_lower or 'v1' in file_lower:
+            return "old_dump"
+        elif 'new' in file_lower or 'updated' in file_lower or 'v2' in file_lower:
+            return "new_dump"
+        
+        # Default based on extension
+        if file_extension == '.cs':
+            return "old_dump"
     
     return "unknown"
 
@@ -370,7 +369,6 @@ async def determine_file_type(file_path: Path, file_name: str) -> str:
 def parse_cs_dump_file(dump_file: Path) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
     Parse .cs dump file for function addresses
-    RETURNS: (function_name -> address, address -> function_name)
     """
     func_to_addr = {}
     addr_to_func = {}
@@ -378,8 +376,6 @@ def parse_cs_dump_file(dump_file: Path) -> Tuple[Dict[str, str], Dict[str, str]]
     try:
         with open(dump_file, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
-        logger.info(f"Parsing .cs dump: {dump_file.name} ({len(content)} chars)")
         
         # PATTERN 1: // FunctionName\n// RVA: 0x123456
         pattern1 = r'//\s*([A-Za-z_][A-Za-z0-9_]*)\s*\r?\n//\s*RVA:\s*(0x[0-9A-Fa-f]+)'
@@ -389,7 +385,6 @@ def parse_cs_dump_file(dump_file: Path) -> Tuple[Dict[str, str], Dict[str, str]]
             addr_lower = address.lower()
             func_to_addr[func_name] = addr_lower
             addr_to_func[addr_lower] = func_name
-            logger.debug(f"Pattern1: {func_name} -> {addr_lower}")
         
         # PATTERN 2: FunctionName RVA: 0x123456
         pattern2 = r'([A-Za-z_][A-Za-z0-9_]*)\s+RVA:\s*(0x[0-9A-Fa-f]+)'
@@ -400,7 +395,6 @@ def parse_cs_dump_file(dump_file: Path) -> Tuple[Dict[str, str], Dict[str, str]]
             if func_name not in func_to_addr:
                 func_to_addr[func_name] = addr_lower
                 addr_to_func[addr_lower] = func_name
-                logger.debug(f"Pattern2: {func_name} -> {addr_lower}")
         
         # PATTERN 3: // RVA: 0x123456 (FunctionName)
         pattern3 = r'//\s*RVA:\s*(0x[0-9A-Fa-f]+)\s*\(([A-Za-z_][A-Za-z0-9_]*)\)'
@@ -411,42 +405,8 @@ def parse_cs_dump_file(dump_file: Path) -> Tuple[Dict[str, str], Dict[str, str]]
             if func_name not in func_to_addr:
                 func_to_addr[func_name] = addr_lower
                 addr_to_func[addr_lower] = func_name
-                logger.debug(f"Pattern3: {func_name} -> {addr_lower}")
-        
-        # PATTERN 4: Offset: 0x123456 (in C# dumps)
-        pattern4 = r'([A-Za-z_][A-Za-z0-9_]*).*?Offset:\s*(0x[0-9A-Fa-f]+)'
-        matches4 = re.findall(pattern4, content, re.IGNORECASE | re.DOTALL)
-        
-        for func_name, address in matches4:
-            addr_lower = address.lower()
-            if func_name not in func_to_addr and len(func_name) > 2:
-                func_to_addr[func_name] = addr_lower
-                addr_to_func[addr_lower] = func_name
-                logger.debug(f"Pattern4: {func_name} -> {addr_lower}")
-        
-        # PATTERN 5: Static field offsets in C#
-        pattern5 = r'public static.*?(0x[0-9A-Fa-f]+).*?//\s*([A-Za-z_][A-Za-z0-9_]*)'
-        matches5 = re.findall(pattern5, content, re.IGNORECASE)
-        
-        for address, func_name in matches5:
-            addr_lower = address.lower()
-            if func_name not in func_to_addr:
-                func_to_addr[func_name] = addr_lower
-                addr_to_func[addr_lower] = func_name
-                logger.debug(f"Pattern5: {func_name} -> {addr_lower}")
         
         logger.info(f"Parsed {len(func_to_addr)} functions from {dump_file.name}")
-        
-        if not func_to_addr:
-            logger.warning(f"No functions found in {dump_file.name}")
-            # Try raw hex search as fallback
-            hex_pattern = r'(0x[0-9A-Fa-f]{6,})'
-            hex_matches = re.findall(hex_pattern, content, re.IGNORECASE)
-            for i, addr in enumerate(hex_matches[:100]):  # Limit to first 100
-                func_name = f"Function_{i:03d}"
-                addr_lower = addr.lower()
-                func_to_addr[func_name] = addr_lower
-                addr_to_func[addr_lower] = func_name
         
         return func_to_addr, addr_to_func
         
@@ -470,16 +430,6 @@ def extract_offsets_from_source(source_file: Path) -> List[Dict]:
             for match in matches:
                 offset = match.group(1)
                 start_pos = match.start()
-                
-                # Skip if in string literal
-                if '"' in line[:start_pos] and line[:start_pos].count('"') % 2 == 1:
-                    continue
-                
-                # Skip if in single line comment
-                if '//' in line[:start_pos]:
-                    comment_pos = line.find('//')
-                    if comment_pos < start_pos:
-                        continue
                 
                 offsets.append({
                     'line': line_num,
@@ -527,11 +477,6 @@ def create_offset_mapping(
                     'function': func_name,
                     'changed': offset_lower != new_offset.lower()
                 }
-                logger.debug(f"Mapped: {offset} -> {new_offset} ({func_name})")
-            else:
-                logger.debug(f"Function {func_name} not found in new dump")
-        else:
-            logger.debug(f"No function found for offset {offset}")
     
     logger.info(f"Created mapping for {len(mapping)} offsets")
     return mapping
@@ -548,7 +493,6 @@ def update_source_file(
             lines = f.readlines()
         
         changes = []
-        updated_lines = set()
         
         for offset_info in offsets:
             line_num = offset_info['line'] - 1
@@ -557,22 +501,19 @@ def update_source_file(
             if old_offset in mapping:
                 info = mapping[old_offset]
                 
-                if info['changed'] and line_num not in updated_lines:
+                if info['changed']:
                     line = lines[line_num]
                     original_line = line.rstrip('\n')
                     
-                    # Replace offset (case-sensitive replacement)
-                    offset_pattern = re.compile(re.escape(old_offset), re.IGNORECASE)
-                    new_line = offset_pattern.sub(info['new_offset'], line)
+                    # Replace offset
+                    new_line = line.replace(old_offset, info['new_offset'])
                     new_line = new_line.rstrip('\n')
                     
-                    # Add comment if not already there
-                    if '//' not in original_line or original_line.find('//') > offset_info['position']:
-                        comment = f"  // {old_offset} -> {info['new_offset']} ({info['function']})"
-                        new_line += comment
+                    # Add comment
+                    comment = f"  // {old_offset} -> {info['new_offset']} ({info['function']})"
+                    new_line += comment
                     
                     lines[line_num] = new_line + '\n'
-                    updated_lines.add(line_num)
                     
                     changes.append({
                         'line': line_num + 1,
@@ -601,8 +542,7 @@ def update_source_file(
             'log_file': log_file,
             'summary_file': summary_file,
             'changes': changes,
-            'total_changed': len(changes),
-            'total_offsets': len(set(offset['offset'] for offset in offsets))
+            'total_changed': len(changes)
         }
         
     except Exception as e:
@@ -635,11 +575,6 @@ def create_change_log(changes: List[Dict], mapping: Dict, updated_file: Path, ou
             f.write("-" * 40 + "\n")
             for change in func_changes:
                 f.write(f"Line {change['line']:4d}: {change['old']} → {change['new']}\n")
-        
-        f.write("\n\nALL CHANGES (chronological):\n")
-        f.write("=" * 80 + "\n")
-        for change in changes:
-            f.write(f"Line {change['line']:4d}: {change['old']} → {change['new']} ({change['function']})\n")
     
     return log_file
 
@@ -648,7 +583,6 @@ def create_summary_file(changes: List[Dict], mapping: Dict, source_file: Path, u
     summary_file = output_dir / f"{updated_file.stem}_SUMMARY.txt"
     
     changed_offsets = sum(1 for info in mapping.values() if info['changed'])
-    unchanged_offsets = len(mapping) - changed_offsets
     
     with open(summary_file, 'w', encoding='utf-8') as f:
         f.write("OFFSET UPDATE SUMMARY\n")
@@ -663,20 +597,20 @@ def create_summary_file(changes: List[Dict], mapping: Dict, source_file: Path, u
         f.write(f"Total offsets found: {len(set(mapping.keys()))}\n")
         f.write(f"Offsets changed: {changed_offsets}\n")
         f.write(f"Lines modified: {len(changes)}\n")
-        f.write(f"Functions affected: {len(set(change['function'] for change in changes))}\n")
-        f.write(f"Unchanged offsets: {unchanged_offsets}\n\n")
+        f.write(f"Functions affected: {len(set(change['function'] for change in changes))}\n\n")
         
-        f.write("CHANGED OFFSETS:\n")
-        f.write("-" * 50 + "\n")
-        for old_offset, info in mapping.items():
-            if info['changed']:
-                f.write(f"{old_offset} → {info['new_offset']} ({info['function']})\n")
+        if changes:
+            f.write("CHANGED OFFSETS:\n")
+            f.write("-" * 50 + "\n")
+            for old_offset, info in mapping.items():
+                if info['changed']:
+                    f.write(f"{old_offset} → {info['new_offset']} ({info['function']})\n")
     
     return summary_file
 
 # ============ PROCESSING HANDLER ============
-async def process_files_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle processing request"""
+async def process_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /process command"""
     user_id = update.effective_user.id
     
     if user_id not in ALLOWED_USER_IDS:
@@ -704,8 +638,7 @@ async def process_files_command(update: Update, context: ContextTypes.DEFAULT_TY
         "3. Creating mapping...\n"
         "4. Updating source file...\n\n"
         "⏳ This may take a few seconds...",
-        parse_mode='Markdown',
-        reply_markup=get_processing_keyboard()
+        parse_mode='Markdown'
     )
     
     # Run processing in background
@@ -723,7 +656,7 @@ async def process_files_background(session: UserSession, update: Update, context
         if not old_func_to_addr or not new_func_to_addr:
             await update.message.reply_text(
                 "❌ Could not parse .cs dump files.\n"
-                "Make sure they contain RVA addresses in the correct format.",
+                "Make sure they contain RVA addresses.",
                 parse_mode='Markdown'
             )
             return
@@ -783,18 +716,16 @@ async def send_results(
 ) -> None:
     """Send processing results to user"""
     changed_offsets = sum(1 for info in mapping.values() if info['changed'])
-    total_offsets = result['total_offsets']
     
     # Summary message
     summary = f"""
 ✅ *Offset Update Complete!*
 
 📊 *Statistics:*
-• Total offsets found: {total_offsets}
+• Total offsets found: {len(set(mapping.keys()))}
 • Offsets changed: {changed_offsets}
 • Lines modified: {result['total_changed']}
 • Functions updated: {len(set(info['function'] for info in mapping.values() if info['changed']))}
-• Unchanged offsets: {total_offsets - changed_offsets}
 
 📁 *Generated files:*
 • Updated source file
@@ -804,10 +735,7 @@ async def send_results(
 📤 *Sending files...*
 """
     
-    if hasattr(update, 'callback_query') and update.callback_query:
-        await update.callback_query.message.edit_text(summary, parse_mode='Markdown')
-    elif update.message:
-        await update.message.edit_text(summary, parse_mode='Markdown')
+    await update.message.reply_text(summary, parse_mode='Markdown')
     
     # Send files
     files_to_send = [
@@ -825,7 +753,7 @@ async def send_results(
                     filename=file_path.name,
                     caption=caption
                 )
-            await asyncio.sleep(1)  # Rate limiting
+            await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"Error sending file {file_path}: {e}")
     
@@ -871,8 +799,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "1. 📄 C++ source file (.cpp/.c/.h)\n"
             "2. 📁 OLD .cs dump file\n"
             "3. 📁 NEW .cs dump file\n\n"
-            "You can send them in any order.\n"
-            "I'll automatically detect file types.",
+            "You can send them in any order.",
             parse_mode='Markdown',
             reply_markup=get_file_type_keyboard()
         )
@@ -886,40 +813,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 reply_markup=get_main_keyboard()
             )
     
-    elif action == "type_source":
-        await query.edit_message_text(
-            "📄 *Upload C++ Source File*\n\n"
-            "Please send your C++ source file.\n"
-            "Supported: .cpp, .c, .h, .hpp, .cc, .cxx\n\n"
-            "The file should contain hex offsets like:\n"
-            "`void* offset = 0x123456;`",
-            parse_mode='Markdown'
-        )
-    
-    elif action == "type_old":
-        await query.edit_message_text(
-            "📁 *Upload OLD .cs Dump File*\n\n"
-            "Please send the OLD .cs dump file.\n"
-            "It should contain function addresses like:\n"
-            "```\n// FunctionName\n// RVA: 0x123456\n```",
-            parse_mode='Markdown'
-        )
-    
-    elif action == "type_new":
-        await query.edit_message_text(
-            "📁 *Upload NEW .cs Dump File*\n\n"
-            "Please send the NEW .cs dump file.\n"
-            "It should contain updated function addresses.",
-            parse_mode='Markdown'
-        )
-    
-    elif action == "back":
-        await query.edit_message_text(
-            "🤖 *Offset Updater Bot*\n\n"
-            "Main menu:",
-            parse_mode='Markdown',
-            reply_markup=get_main_keyboard()
-        )
+    elif action == "help":
+        await help_command(query, context)
     
     elif action == "clear":
         if user_id in user_sessions:
@@ -928,6 +823,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(
             "🗑️ *All files cleared!*\n\n"
             "Session reset. Use /start to begin again.",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+    
+    elif action == "back":
+        await query.edit_message_text(
+            "🤖 *Offset Updater Bot*\n\n"
+            "Main menu:",
             parse_mode='Markdown',
             reply_markup=get_main_keyboard()
         )
@@ -946,41 +849,18 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         except:
             pass
 
-# ============ CLEANUP TASK ============
-async def cleanup_old_sessions():
-    """Clean up old user sessions periodically"""
-    while True:
-        try:
-            now = datetime.now()
-            to_remove = []
-            
-            for user_id, session in list(user_sessions.items()):
-                # Remove sessions older than 1 hour
-                if (now - session.last_activity).total_seconds() > 3600:
-                    session.cleanup()
-                    to_remove.append(user_id)
-            
-            for user_id in to_remove:
-                del user_sessions[user_id]
-            
-            if to_remove:
-                logger.info(f"Cleaned up {len(to_remove)} old sessions")
-            
-        except Exception as e:
-            logger.error(f"Error in cleanup task: {e}")
-        
-        await asyncio.sleep(300)  # Run every 5 minutes
-
 # ============ MAIN ============
 def main() -> None:
     """Start the bot"""
     # Check token
-    if BOT_TOKEN == "8556162074:AAFzo3Cs_P1ZMAzN_OhY1Kk8MWaj10V0N_w":
-        print("❌ ERROR: Please set your Telegram Bot Token!")
-        print("1. Create bot with @BotFather")
-        print("2. Get token")
-        print("3. Set BOT_TOKEN in code or environment variable")
-        return
+    if not BOT_TOKEN or BOT_TOKEN == "8556162074:AAFzo3Cs_P1ZMAzN_OhY1Kk8MWaj10V0N_w":
+        print("❌ ERROR: Please set your Telegram Bot Token in config.json!")
+        print("1. Edit config.json")
+        print("2. Add your bot token from @BotFather")
+        sys.exit(1)
+    
+    # Create temp directory
+    Path("temp_files").mkdir(exist_ok=True)
     
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -990,7 +870,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("upload", start_command))
-    application.add_handler(CommandHandler("process", process_files_command))
+    application.add_handler(CommandHandler("process", process_command))
     
     # Add message handler for documents
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
@@ -1001,16 +881,10 @@ def main() -> None:
     # Add error handler
     application.add_error_handler(error_handler)
     
-    # Create temp directory
-    Path("temp").mkdir(exist_ok=True)
-    
-    # Start cleanup task
-    asyncio.get_event_loop().create_task(cleanup_old_sessions())
-    
     # Start the bot
     print("🤖 Telegram Offset Updater Bot")
     print("=" * 40)
-    print(f"Token: {BOT_TOKEN[:10]}...")
+    print(f"Bot token: {BOT_TOKEN[:10]}...")
     print(f"Allowed users: {ALLOWED_USER_IDS}")
     print("Starting bot...")
     print("Press Ctrl+C to stop")
