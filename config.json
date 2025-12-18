@@ -1,0 +1,115 @@
+{
+  "telegram": {
+    "bot_token": "8556162074:AAFzo3Cs_P1ZMAzN_OhY1Kk8MWaj10V0N_w",
+    "allowed_user_ids": [5682792112, 6064653643],
+    "admin_user_ids": [5682792112],
+    "api_timeout": 30,
+    "max_message_length": 4096
+  },
+  
+  "files": {
+    "max_file_size_mb": 50,
+    "temp_directory": "temp_files",
+    "cleanup_hours": 1,
+    "keep_output_files_hours": 24,
+    
+    "allowed_extensions": {
+      "source_files": [".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hxx", ".ixx"],
+      "dump_files": [".cs", ".txt", ".log", ".dump", ".json", ".xml"],
+      "archive_files": [".zip", ".rar", ".7z", ".tar", ".gz"]
+    },
+    
+    "patterns": {
+      "cs_dump_patterns": [
+        "//\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\r?\\n//\\s*RVA:\\s*(0x[0-9A-Fa-f]+)",
+        "([A-Za-z_][A-Za-z0-9_]*)\\s+RVA:\\s*(0x[0-9A-Fa-f]+)",
+        "//\\s*RVA:\\s*(0x[0-9A-Fa-f]+)\\s*\\(([A-Za-z_][A-Za-z0-9_]*)\\)",
+        "([A-Za-z_][A-Za-z0-9_]*).*?Offset:\\s*(0x[0-9A-Fa-f]+)",
+        "public static.*?(0x[0-9A-Fa-f]+).*?//\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      ],
+      "hex_offset_pattern": "0x[0-9A-Fa-f]{6,}",
+      "function_name_pattern": "[A-Za-z_][A-Za-z0-9_]*"
+    }
+  },
+  
+  "processing": {
+    "max_workers": 5,
+    "timeout_seconds": 300,
+    "max_offsets_per_file": 10000,
+    "max_functions_per_dump": 5000,
+    
+    "output": {
+      "add_comments": true,
+      "comment_format": "// {old_offset} -> {new_offset} ({function_name})",
+      "create_backup": true,
+      "generate_logs": true,
+      "generate_summary": true
+    },
+    
+    "logging": {
+      "enabled": true,
+      "level": "INFO",
+      "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+      "file": "bot.log",
+      "max_size_mb": 10,
+      "backup_count": 5
+    }
+  },
+  
+  "security": {
+    "encrypt_temp_files": false,
+    "delete_files_after_send": true,
+    "require_authentication": true,
+    "max_sessions_per_user": 3,
+    "session_timeout_minutes": 60
+  },
+  
+  "bot_behavior": {
+    "welcome_message": "🤖 Welcome to Offset Updater Bot!\n\nI can update offsets in your C++ files using .cs dump files.\n\nSend me:\n1. Your C++ source file\n2. OLD .cs dump file\n3. NEW .cs dump file\n\nI'll do the rest!",
+    "help_message": "📚 Help:\n\n• Supported files: .cpp, .c, .h, .cs, .txt\n• .cs files should contain: // FunctionName\\n// RVA: 0x123456\n• Max file size: 50MB\n• Use /start to begin\n• Use /status to check progress",
+    "error_messages": {
+      "file_too_large": "❌ File too large. Max size: {max_size}MB",
+      "invalid_file_type": "❌ Unsupported file type. Allowed: {allowed_types}",
+      "missing_files": "❌ Missing files. Need: source, old dump, new dump",
+      "processing_error": "❌ Processing error: {error}",
+      "unauthorized": "❌ You are not authorized to use this bot"
+    },
+    "success_messages": {
+      "file_received": "✅ File received: {filename}",
+      "processing_started": "🔄 Processing started...",
+      "processing_complete": "✅ Processing complete!",
+      "files_sent": "📤 Files sent successfully"
+    }
+  },
+  
+  "notifications": {
+    "send_completion_notification": true,
+    "send_error_notification": true,
+    "send_welcome_notification": true,
+    "notification_format": "📅 {timestamp}\\n👤 User: {user_id}\\n📁 File: {filename}\\n🔧 Action: {action}\\n📊 Result: {result}"
+  },
+  
+  "limits": {
+    "max_concurrent_processes": 2,
+    "max_files_per_session": 10,
+    "max_total_file_size_mb": 100,
+    "rate_limit_per_user": {
+      "files_per_minute": 5,
+      "messages_per_minute": 10,
+      "commands_per_minute": 5
+    }
+  },
+  
+  "debug": {
+    "enabled": false,
+    "log_raw_files": false,
+    "log_parsed_data": false,
+    "keep_temp_files": false,
+    "test_mode": false
+  },
+  
+  "version": "2.0.0",
+  "author": "Your Name",
+  "repository": "https://github.com/yourusername/offset-updater-bot",
+  "last_updated": "2024-01-01"
+}
